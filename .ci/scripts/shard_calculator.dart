@@ -59,6 +59,18 @@ class ShardCalculator {
     return shards.where((shard) => shard.isNotEmpty).toList();
   }
 
+  /// Get all available packages in the packages/ directory
+  static List<String> getAllPackages() {
+    final packagesDir = Directory('packages');
+    if (!packagesDir.existsSync()) return [];
+
+    return packagesDir
+        .listSync()
+        .whereType<Directory>()
+        .map((dir) => dir.path.split('/').last)
+        .toList();
+  }
+
   /// Analyzes changed files and determines affected packages
   static Map<String, dynamic> analyzePackages(List<String> changedFiles) {
     final modifiedPackages = <String>{};
@@ -70,6 +82,16 @@ class ShardCalculator {
       if (match != null) {
         modifiedPackages.add(match.group(1)!);
       }
+    }
+
+    // If no changes detected, test all packages (test-all mode)
+    if (modifiedPackages.isEmpty) {
+      final allPackages = getAllPackages();
+      return {
+        'modified': [],
+        'dependents': [],
+        'all': allPackages,
+      };
     }
 
     // Load dependencies from pubspec files
@@ -218,10 +240,12 @@ void main(List<String> args) {
         final analysis = ShardCalculator.analyzePackages(changedFiles);
         final allPackages = (analysis['all'] as List).cast<String>();
 
+        // Only fail if packages directory doesn't exist or is empty
         if (allPackages.isEmpty) {
+          stderr.writeln('Error: No packages found in packages/ directory');
           print('SHARD_COUNT=0');
           print('MODIFIED_PACKAGES=');
-          exit(0);
+          exit(1);
         }
 
         // Always use the same format: create shards (even if just 1)
