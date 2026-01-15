@@ -1,0 +1,31 @@
+name: flutter_sharding_demo
+
+packages:
+  - packages/**
+
+scripts:
+  analyze:
+    run: flutter analyze
+    description: Run static analysis on all packages
+
+  test:
+    run: flutter test
+    description: Run tests for all packages
+
+  test:shard_0:
+    run: flutter test
+    description: Run tests for shard 0
+    packageFilters:
+      scope: 'feature_a,feature_b'
+
+  test:shard_1:
+    run: flutter test
+    description: Run tests for shard 1
+    packageFilters:
+      scope: 'feature_c,feature_d'
+
+  test:shard_2:
+    run: flutter test
+    description: Run tests for shard 2
+    packageFilters:
+      scope: 'feature_e,feature_f'

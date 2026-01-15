@@ -1,0 +1,17 @@
+name: feature_e
+description: Feature E package (depends on feature_d)
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  feature_d:
+    path: ../feature_d
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

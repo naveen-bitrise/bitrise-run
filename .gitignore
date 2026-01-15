@@ -1,0 +1,36 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+.pub/
+build/
+*.lock
+pubspec.lock
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Test results
+test-results/
+*.test-results.json
+coverage/
+.test_coverage.dart
+
+# Melos
+.melos_tool/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Bitrise
+bitrise.yml.backup
+
+# Temporary files
+*.log
+*.tmp
+*.temp
+shard_config.json
