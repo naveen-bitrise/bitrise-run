@@ -19,7 +19,7 @@ workflows:
     steps:
     - git-clone@8: {}
 
-    - flutter-installer@0:
+    - flutter-installer@1:
         inputs:
         - version: $FLUTTER_VERSION
         - is_update: "false"
@@ -103,7 +103,7 @@ workflows:
     steps:
     - git-clone@8: {}
 
-    - flutter-installer@0:
+    - flutter-installer@1:
         inputs:
         - version: $FLUTTER_VERSION
 
