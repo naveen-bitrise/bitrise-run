@@ -213,15 +213,15 @@ workflows:
                 tojunit --input test-output.json --output "$JUNIT_OUTPUT" || {
                   # Fallback: create basic JUnit XML if conversion fails
                   echo "Warning: junitreport conversion failed, creating basic report"
-                  cat > "$JUNIT_OUTPUT" <<'XMLEOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="$package">
-  <testsuite name="$package" tests="1">
-    <testcase name="Tests" classname="$package">
-    </testcase>
-  </testsuite>
-</testsuites>
-XMLEOF
+                  cat << EOF > "$JUNIT_OUTPUT"
+            <?xml version="1.0" encoding="UTF-8"?>
+            <testsuites name="$package">
+              <testsuite name="$package" tests="1">
+                <testcase name="Tests" classname="$package">
+                </testcase>
+              </testsuite>
+            </testsuites>
+            EOF
                 }
                 echo "Generated JUnit report: $JUNIT_OUTPUT"
               else
@@ -353,11 +353,10 @@ pipelines:
       # Step 2: Run tests dynamically
       # - If SHARD_COUNT=1: Runs once with all packages (shardless)
       # - If SHARD_COUNT>1: Runs N times in parallel (sharded)
-      # - If SHARD_COUNT=0: Doesn't run (no packages to test)
+      # - If SHARD_COUNT=0: Doesn't run (0 copies = skipped)
       test_shard:
         depends_on:
         - shard_coordinator
-        run_if: '{{ getenv "SHARD_COUNT" | ne "0" }}'
         copies: $SHARD_COUNT  # 🎯 Dynamic parallelism!
 
       # Step 3: Collect results after all shards complete
