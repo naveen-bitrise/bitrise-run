@@ -211,11 +211,6 @@ $BITRISE_TEST_RESULT_DIR/
 | Configuration | Simple | Requires API token |
 | Best For | Stable workloads | Variable changes |
 
-## 🔗 Related Documentation
-
-- [Stage-Based Sharding](README-SHARDING.md) - Legacy approach
-- [Graph Pipeline Guide](GRAPH-PIPELINE-GUIDE.md) - Deep dive into graph pipelines
-- [Comparison Guide](COMPARISON.md) - Stage vs Graph pipelines
 
 ## 🤝 Contributing
 
