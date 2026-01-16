@@ -9,6 +9,7 @@ app:
   - FLUTTER_VERSION: "3.24.0"
   - SHARD_THRESHOLD: "4"  # Use sharding if more than 4 packages
   - PACKAGES_PER_SHARD: "2"  # ~2 packages per shard
+  - SHARD_COUNT: "1"  # Default to 1 shard (updated dynamically by coordinator)
 
 # Workflows
 workflows:
