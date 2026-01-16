@@ -278,98 +278,6 @@ workflows:
             echo ""
             echo "✅ Shard $BITRISE_IO_PARALLEL_INDEX: All tests passed!"
 
-    - deploy-to-bitrise-io@2:
-        title: Deploy test results
-        inputs:
-        - deploy_path: test-results/
-        - is_compress: "true"
-        - is_enable_public_page: "false"
-
-  # Collect and aggregate results from all shards
-  collect_results:
-    description: Aggregate test results from all shards and generate final report
-    steps:
-    - script@1:
-        title: Download artifacts from all shards
-        inputs:
-        - content: |-
-            #!/bin/bash
-            set -ex
-
-            echo "========================================="
-            echo "Collecting Test Results"
-            echo "Shard Count: $SHARD_COUNT"
-            echo "========================================="
-
-            # Pull artifacts from previous stage
-            # Note: Bitrise automatically makes artifacts from dependent workflows available
-
-            # Create aggregated results directory
-            mkdir -p aggregated-results
-
-            echo "All shard artifacts are available in the build artifacts"
-
-    - script@1:
-        title: Generate combined test report
-        inputs:
-        - content: |-
-            #!/bin/bash
-            set -ex
-
-            echo "========================================="
-            echo "Test Summary"
-            echo "========================================="
-            echo "Total Shards: $SHARD_COUNT"
-            echo "Modified Packages: $MODIFIED_PACKAGES"
-            echo ""
-
-            # Count total test results (if available)
-            if [ -d "test-results" ]; then
-              TOTAL_FILES=$(find test-results -name "*.json" | wc -l)
-              echo "Test result files: $TOTAL_FILES"
-            fi
-
-            echo ""
-            echo "✅ All shard tests completed successfully!"
-            echo "========================================="
-
-            # Here you could add:
-            # - JUnit XML merging
-            # - Coverage report aggregation
-            # - Test result parsing and summary
-            # - Slack/email notifications
-
-    - script@1:
-        title: Post summary to GitHub (optional)
-        inputs:
-        - content: |-
-            #!/bin/bash
-            set -e
-
-            # Example: Post comment to PR with test results
-            # Requires GitHub token and PR number
-
-            if [ -n "$GITHUB_TOKEN" ] && [ -n "$PULL_REQUEST_ID" ]; then
-              echo "Posting results to GitHub PR #$PULL_REQUEST_ID"
-
-              # Create summary
-              SUMMARY="### 🧪 Test Results
-
-              - **Shards**: $SHARD_COUNT
-              - **Modified packages**: $MODIFIED_PACKAGES
-              - **Status**: ✅ All tests passed
-
-              [View detailed results]($BITRISE_BUILD_URL)"
-
-              # Post comment (example - adjust for your setup)
-              # gh pr comment $PULL_REQUEST_ID --body "$SUMMARY"
-
-              echo "GitHub notification skipped (configure GITHUB_TOKEN)"
-            else
-              echo "GitHub notification skipped (GITHUB_TOKEN not set)"
-            fi
-        is_always_run: false
-
 # Graph-based Pipeline with Fixed Parallelism
 pipelines:
   flutter_test_pipeline:
@@ -386,10 +294,6 @@ pipelines:
         - shard_coordinator
         parallel: $SHARD_COUNT  # Fixed parallelism (e.g., 5 shards)
 
-      # Step 3: Collect results after all shards complete
-      collect_results:
-        depends_on:
-        - test_shard  # Waits for ALL copies to complete
 
 # Default meta configuration
 meta:
