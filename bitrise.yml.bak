@@ -1,0 +1,1227 @@
+---
+format_version: '13'
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: ios
+workflows:
+  proxy_tests:
+    steps:
+    - script@1:
+        inputs:
+        - content: "#!/usr/bin/env bash
+
+            set -ex
+
+
+            # ---------------------------------------------------
+
+            # CONFIGURATION
+
+            # You can hardcode these or use Bitrise Env Vars
+
+            # ---------------------------------------------------
+
+            TARGET_URL=\"https://your-sonarqube-server.com\"
+
+            LB_HEADER_NAME=\"X-Forwarded-Auth\"
+
+            LB_HEADER_VALUE=\"some-secret-token-value\"
+
+            PROXY_PORT=9090
+
+
+            # Create the proxy.js file
+
+            cat <<EOF > proxy.js
+
+            const http = require('http');
+
+            const https = require('https');
+
+            const url = require('url');
+
+
+            const targetUrl = new url.URL('$TARGET_URL');
+
+            const port = $PROXY_PORT;
+
+
+            // Choose the right client based on protocol
+
+            const client = targetUrl.protocol === 'https:' ? https : http;
+
+
+            const server = http.createServer((clientReq, clientRes) => {
+
+            \    // 1. Setup options for the outgoing request
+
+            \    const options = {
+
+            \        hostname: targetUrl.hostname,
+
+            \        port: targetUrl.port || (targetUrl.protocol === 'https:' ?
+            443 : 80),
+
+            \        path: clientReq.url,
+
+            \        method: clientReq.method,
+
+            \        headers: {\ 
+
+            \            ...clientReq.headers,
+
+            \            // Inject the Custom Header here
+
+            \            '$LB_HEADER_NAME': '$LB_HEADER_VALUE'
+
+            \        }
+
+            \    };
+
+
+            \    // Remove Host header to avoid SNI/VirtualHost issues on the
+            target
+
+            \    delete options.headers['host'];
+
+
+            \    // 2. Make the request to the real Sonar server
+
+            \    const proxyReq = client.request(options, (proxyRes) => {
+
+            \        clientRes.writeHead(proxyRes.statusCode, proxyRes.headers);
+
+            \        proxyRes.pipe(clientRes, { end: true });
+
+            \    });
+
+
+            \    // Handle errors
+
+            \    proxyReq.on('error', (e) => {
+
+            \        console.error('Proxy Error:', e);
+
+            \        clientRes.writeHead(500);
+
+            \        clientRes.end();
+
+            \    });
+
+
+            \    // 3. Pipe data from the scanner to the real server
+
+            \    clientReq.pipe(proxyReq, { end: true });
+
+            });
+
+
+            server.listen(port, () => {
+
+            \    console.log(\\`Proxy running on localhost:\\${port} ->
+            \\${targetUrl.href}\\`);
+
+            });
+
+            EOF
+
+
+            # Start the proxy in the background immediately
+
+            echo \"Starting proxy in background...\"
+
+            node proxy.js > proxy.log 2>&1 &
+
+
+            # Wait 3 seconds to ensure it's up
+
+            sleep 3
+
+            echo \"Proxy is up.\"\n"
+  workflow_1:
+    steps:
+    - git::https://github.com/naveen-bitrise/bitrise-step-cloudflare-zero-trust-network-access@main:
+        inputs:
+        - must_succeed: 'no'
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            exit 0
+        title: Simulating Success
+        is_skippable: true
+    - script@1:
+        inputs:
+        - content: "#!/bin/env bash
+
+            set -ex
+
+
+            # Creating a sub-directory for the test run within the
+            BITRISE_TEST_RESULT_DIR:
+
+
+            test_run_dir=\"$BITRISE_TEST_RESULT_DIR/result_dir_1\"
+
+            mkdir \"$test_run_dir\"
+
+
+            # Exporting the JUnit XML test report:
+
+            cat << EOF > \"$test_run_dir/UnitTest.xml\"
+
+            <?xml version=\"1.0\" encoding=\"UTF-8\"?>
+
+            <testsuites>
+
+            \    <testsuite name=\"mockTestForBuildStatusReport\" tests=\"1\"
+            failures=\"${BITRISE_BUILD_STATUS}\" errors=\"0\" skipped=\"0\"
+            timestamp=\"2023-10-05T12:00:00\" time=\"0.123\">
+
+            \        <testcase name=\"test\">
+
+            \            $(if [ $BITRISE_BUILD_STATUS -eq 1 ]; then\ 
+
+            \                echo \"<failure></failure>\"
+
+            \            fi)
+
+            \        </testcase>
+
+            \    </testsuite>
+
+            </testsuites>
+
+            EOF
+
+
+            # Creating the test-info.json file with the name of the test run
+            defined:
+
+            echo '{\"test-name\":\"\"}' >> \"$test_run_dir/test-info.json\"\n"
+        is_always_run: true
+        title: Status Report for Workflow 1 - Step 1
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # simulating step success
+            envman add --key STEP_STATUS --value "0"
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+        title: Simulating Step 2 Success
+    - script@1:
+        inputs:
+        - content: "#!/bin/env bash
+
+            set -ex
+
+
+            # Creating a sub-directory for the test run within the
+            BITRISE_TEST_RESULT_DIR:
+
+
+            test_run_dir=\"$BITRISE_TEST_RESULT_DIR/result_dir_2\"
+
+            mkdir \"$test_run_dir\"
+
+
+            # Exporting the JUnit XML test report:
+
+            cat << EOF > \"$test_run_dir/UnitTest.xml\"
+
+            <?xml version=\"1.0\" encoding=\"UTF-8\"?>
+
+            <testsuites>
+
+            \    <testsuite name=\"mockTestForBuildStatusReport\" tests=\"1\"
+            failures=\"${STEP_STATUS}\" errors=\"0\" skipped=\"0\"
+            timestamp=\"2023-10-05T12:00:00\" time=\"0.123\">
+
+            \        <testcase name=\"test\">
+
+            \            $(if [ $STEP_STATUS -eq 1 ]; then\ 
+
+            \                echo \"<failure></failure>\"
+
+            \            fi)
+
+            \        </testcase>
+
+            \    </testsuite>
+
+            </testsuites>
+
+            EOF
+
+
+            # Creating the test-info.json file with the name of the test run
+            defined:
+
+            echo '{\"test-name\":\"\"}' >> \"$test_run_dir/test-info.json\"\n"
+        is_always_run: true
+        title: Status Report for Workflow 1 - Step 2
+    - deploy-to-bitrise-io@2: {}
+  workflow_2:
+    steps:
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            exit 1
+        title: Simulating Failure
+    - script@1:
+        inputs:
+        - content: "#!/bin/env bash
+
+            set -ex
+
+
+            # Creating a sub-directory for the test run within the
+            BITRISE_TEST_RESULT_DIR:
+
+
+            test_run_dir=\"$BITRISE_TEST_RESULT_DIR/result_dir_1\"
+
+            mkdir \"$test_run_dir\"
+
+
+            # Exporting the JUnit XML test report:
+
+            cat << EOF > \"$test_run_dir/UnitTest.xml\"
+
+            <?xml version=\"1.0\" encoding=\"UTF-8\"?>
+
+            <testsuites>
+
+            \    <testsuite name=\"mockTestForBuildStatusReport\" tests=\"1\"
+            failures=\"${BITRISE_BUILD_STATUS}\" errors=\"0\" skipped=\"0\"
+            timestamp=\"2023-10-05T12:00:00\" time=\"0.123\">
+
+            \        <testcase name=\"test\">
+
+            \            $(if [ $BITRISE_BUILD_STATUS -eq 1 ]; then\ 
+
+            \                echo \"<failure></failure>\"
+
+            \            fi)
+
+            \        </testcase>
+
+            \    </testsuite>
+
+            </testsuites>
+
+            EOF
+
+
+            # Creating the test-info.json file with the name of the test run
+            defined:
+
+            echo '{\"test-name\":\"\"}' >> \"$test_run_dir/test-info.json\"\n"
+        is_always_run: true
+        title: Status Report for Workflow 2
+    - deploy-to-bitrise-io@2: {}
+  Temp:
+    steps:
+    - email-with-mailgun@2:
+        inputs:
+        - send_to: "$GIT_CLONE_COMMIT_COMMITER_EMAIL"
+    - restore-cache@2:
+        inputs:
+        - key: ruby-2.7.6
+    - script@1:
+        title: Install Ruby with asdf
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -ex
+
+            RUBY_VERSION=2.7.6
+            # Assuming asdf is already installed and on PATH, if not install it here
+
+            asdf install ruby $RUBY_VERSION
+            asdf global ruby $RUBY_VERSION
+
+            # Verify Ruby
+            ruby -v
+    - save-cache@1:
+        inputs:
+        - paths: |-
+            ~/.asdf/installs/ruby/2.7.6
+            ~/.asdf/shims
+            ~/.gem
+            ~/.bundle
+        - key: ruby-2.7.6
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            ruby --version
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - npm@1: {}
+  cli:
+    steps:
+    - script@1:
+        inputs:
+        - content: |+
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # List simulators with better formatting
+            #xcrun simctl list devices available --json
+
+            xcrun simctl create "iPhone 16" "com.apple.CoreSimulator.SimDeviceType.iPhone-16" "com.apple.CoreSimulator.SimRuntime.iOS-18-5"
+
+    meta:
+      bitrise.io:
+        stack: osx-xcode-16.4.x
+        machine_type_id: g2.mac.4x-large
+  kvm:
+    steps:
+    - script@1:
+        inputs:
+        - content: |
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -ex
+
+            echo "=== Official Android KVM Check ==="
+
+            # Install cpu-checker (as per Android docs)
+            echo "Installing cpu-checker..."
+            apt-get update && apt-get install -y cpu-checker
+
+            # Use kvm-ok to check KVM support
+            echo "=== Running kvm-ok ==="
+            kvm-ok
+
+            egrep -c '(vmx|svm)' /proc/cpuinfo
+    meta:
+      bitrise.io:
+        stack: linux-docker-android-22.04
+        machine_type_id: elite
+  maven:
+    steps:
+    - restore-cache@2:
+        inputs:
+        - key: brew-install
+    - script:
+        title: Install Maven if needed
+        inputs:
+        - content: "#!/bin/bash
+
+            set -e
+
+
+            # Check if Homebrew is already installed and in PATH
+
+            if ! command -v brew &> /dev/null; then
+
+            \  echo \"Homebrew not found, installing and setting up...\"
+
+            \ \ 
+
+            \  # Install Homebrew
+
+            \  NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL
+            https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\
+            \"
+
+            \ \ 
+
+            \  # Find where Homebrew was installed
+
+            \  if [ -d \"/home/linuxbrew/.linuxbrew\" ]; then
+
+            \    BREW_PATH=\"/home/linuxbrew/.linuxbrew\"
+
+            \  elif [ -d \"$HOME/.linuxbrew\" ]; then
+
+            \    BREW_PATH=\"$HOME/.linuxbrew\"
+
+            \  else
+
+            \    echo \"Searching for Homebrew installation...\"
+
+            \    BREW_PATH=$(find / -name \"brew\" -type f 2>/dev/null | grep -v
+            \"Cellar\" | head -n 1 | xargs dirname)
+
+            \    if [ -z \"$BREW_PATH\" ]; then
+
+            \      echo \"ERROR: Could not find Homebrew installation\"
+
+            \      exit 1
+
+            \    fi
+
+            \  fi
+
+            \ \ 
+
+            \  echo \"Homebrew installation found at: $BREW_PATH\"
+
+            \ \ 
+
+            \  # Add Homebrew to PATH
+
+            \  eval \"$($BREW_PATH/bin/brew shellenv)\"
+
+            \ \ 
+
+            \  # Store Homebrew path for caching
+
+            \  envman add --key HOMEBREW_PREFIX --value \"$BREW_PATH\"
+
+            \ \ 
+
+            \  # Install necessary dependencies
+
+            \  sudo apt-get install -y build-essential
+
+            else
+
+            \  echo \"Homebrew is already installed\"
+
+            \  BREW_PATH=$(brew --prefix)
+
+            \  echo \"Homebrew installation at: $BREW_PATH\"
+
+            \  envman add --key HOMEBREW_PREFIX --value \"$BREW_PATH\"
+
+            fi
+
+
+            # Now check if Maven is installed
+
+            if ! command -v mvn &> /dev/null; then
+
+            \  echo \"Maven not found, installing...\"
+
+            \  brew install maven
+
+            else
+
+            \  echo \"Maven is already installed\"
+
+            \  mvn --version
+
+            fi
+
+
+            # Print paths for debugging
+
+            echo \"Homebrew paths:\"
+
+            ls -la $BREW_PATH
+
+            echo \"Cellar path:\"
+
+            ls -la $BREW_PATH/Cellar || echo \"Cellar not found\"
+
+
+            # Ensure paths exist for caching
+
+            if [ ! -d \"$BREW_PATH\" ]; then
+
+            \  echo \"ERROR: Homebrew path doesn't exist: $BREW_PATH\"
+
+            \  exit 1
+
+            fi
+
+
+            # Directly use the path in cache-push
+
+            echo \"Using path for cache: $BREW_PATH\"
+
+            envman add --key CACHE_BREW_PATH --value \"$BREW_PATH\""
+    - save-cache@1:
+        inputs:
+        - paths: |-
+            $HOMEBREW_PREFIX -> homebrew.tar.gz
+            $HOME/.m2 -> maven-repository.tar.gz
+        - key: brew-install
+    meta:
+      bitrise.io:
+        stack: linux-docker-android-22.04
+        machine_type_id: elite
+  test:
+    steps:
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            echo "--- Installing Docker for Mac using Homebrew ---"
+            # Use Homebrew cask to install Docker Desktop. This is the recommended
+            # way to install GUI applications via command line on macOS.
+            brew install --cask docker
+
+            echo "--- Starting Docker Desktop ---"
+            # Use the 'open' command to start the application.
+            # The '&' at the end runs the process in the background so the script can continue.
+            open /Applications/Docker.app &
+
+            echo "--- Waiting for Docker daemon to be ready ---"
+            # This is a crucial step. Docker Desktop can take a minute or two to start.
+            # We will poll the 'docker info' command until it succeeds.
+            # We set a timeout of 3 minutes (36 * 5 seconds).
+            i=0
+            while ! docker info &>/dev/null; do
+                i=$((i+1))
+                if [ $i -ge 36 ]; then
+                echo "Docker did not start within 3 minutes. Exiting."
+                exit 1
+                fi
+                echo -n "."
+                sleep 5
+            done
+            echo "" # Newline after the dots
+            echo "✅ Docker daemon is running!"
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+        title: Docker Install
+    - script@1:
+        title: Docker Verify
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            echo "--- Checking Docker version ---"
+            docker --version
+
+            echo "--- Checking Docker daemon info ---"
+            docker info
+
+            echo "--- Running a simple Docker container ---"
+            docker run hello-world
+
+            echo "✅ Docker installation verified successfully!"
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    meta:
+      bitrise.io:
+        stack: osx-xcode-26.0.x
+        machine_type_id: g2.mac.4large
+  custom_step:
+    steps:
+    - script@1:
+        inputs:
+        - content: |-
+            #!/bin/bash
+            set -e
+
+            # Check if GIT_HTTP_PASSWORD is set
+            if [ -z "$GIT_HTTP_PASSWORD" ]; then
+                echo "Error: GIT_HTTP_PASSWORD environment variable is not set"
+                exit 1
+            fi
+
+            # Set default username if not provided
+            GIT_HTTP_USERNAME="${GIT_HTTP_USERNAME:-bitrise-git-clone-step}"
+
+            # Create .netrc file
+            cat > ~/.netrc << EOF
+            machine github.com
+                    #login ${GIT_HTTP_USERNAME}
+                    password ${GIT_HTTP_PASSWORD}
+            EOF
+
+            # Set proper permissions (important for security)
+            chmod 600 ~/.netrc
+
+            echo "✅ .netrc file created successfully"
+            echo "Machine: github.com"
+            echo "Login: ${GIT_HTTP_USERNAME}"
+    - git-clone@8:
+        run_if: false
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            echo "$GIT_HTTP_USERNAME"
+            echo "$GIT_HTTP_PASSWORD"
+            more /Users/vagrant/.netrc
+            # write your script here
+            git clone https://github.com/naveen-bitrise/bitrise-step-ai-build-issue-analyzer.git
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - git::https://github.com/naveen-bitrise/bitrise-step-ai-build-issue-analyzer.git@main:
+        title: AI Build Issue Analyzer
+        is_always_run: true
+  bazel:
+    steps:
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            which bazel
+            whereis bazel
+
+            export BAZELISK_SKIP_DOWNLOAD=true
+            bazel version
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+  temp1:
+    steps:
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            echo $BITRISEIO_PIPELINE_BUILD_URL
+            echo $BITRISE_TRIGGERED_WORKFLOW_ID
+            envman add --key ARTIFACT_TAB_URL --value "$BITRISEIO_PIPELINE_BUILD_URL?tab=artifacts"
+            echo $ARTIFACT_TAB_URL
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            echo $ARTIFACT_TAB_URL
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+  block_website:
+    steps:
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            curl -v https://registry.npmjs.org/
+            echo "127.0.0.1   npmjs.org" | sudo tee -a /etc/hosts
+            echo "127.0.0.1   registry.npmjs.org" | sudo tee -a /etc/hosts
+
+            cat /etc/hosts
+            curl -v https://registry.npmjs.org/
+
+
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+  clone:
+    steps:
+    - git-clone@8: {}
+  clone_wrapper:
+    steps:
+    - git-clone@8: {}
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            cat > ./bitrise.yml << 'EOF'
+            format_version: '13'
+            default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+            project_type: ios
+            workflows:
+              clone:
+                  steps:
+                  - git-clone@8:
+                      inputs:
+                      - clone_depth: 1000
+            EOF
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+            bitrise run clone
+
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+  mcp:
+    steps:
+    - script@1:
+        title: Step 1 - One that starts it all
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]')
+            echo $OS_NAME
+            envman add --key DETECTED_OS --value "$OS_NAME"
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - script@1:
+        title: Step 2 - One in the middle
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            echo "OS: $OS"
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+        run_if: '{{ enveq "DETECTED_OS" "linux" }}'
+    - script@1:
+        title: 'Step 3 - One at the end of it all! '
+  curl:
+    steps:
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            #curl -LO https://services.gradle.org/distributions/gradle-8.12.1-bin.zip
+
+            curl -v -L https://services.gradle.org/distributions/gradle-8.12.1-bin.zip -o /dev/null
+
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+  oidc:
+    steps:
+    - script@1:
+        inputs:
+        - content: "#!/bin/bash
+
+            set -e
+
+
+            echo \"Checking for OIDC token URL...\"
+
+
+            if [ -z \"$BITRISE_OIDC_TOKEN_URL\" ]; then
+
+            \  echo \"ERROR: BITRISE_OIDC_TOKEN_URL is not set\"
+
+            \  echo \"OIDC might not be enabled for this workflow\"
+
+            \  exit 1
+
+            else
+
+            \  echo \"OIDC URL found: $BITRISE_OIDC_TOKEN_URL\"
+
+            \ \ 
+
+            \  # Now get the token
+
+            \  AUDIENCE=\"your-audience\"
+
+            \ \ 
+
+            \  RESPONSE=$(curl -s -f -X POST \"${BITRISE_OIDC_TOKEN_URL}\" \\
+
+            \    -H \"Content-Type: application/json\" \\
+
+            \    -d \"{\\\"audience\\\": \\\"${AUDIENCE}\\\"}\")
+
+            \ \ 
+
+            \  ID_TOKEN=$(echo \"$RESPONSE\" | grep -o '\"id_token\":\"[^\"]*' |
+            cut -d'\"' -f4)
+
+            \ \ 
+
+            \  envman add --key BITRISE_OIDC_TOKEN --value \"$ID_TOKEN\"
+
+            fi"
+  jfrog:
+    steps:
+    - script@1:
+        title: Install JFrog CLI
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            curl -fL https://install-cli.jfrog.io | sh
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - script@1:
+        title: Configure JFrog CLI
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+
+            jf config use bitrise_frog_artifactory
+            #export JFROG_CLI_BUILD_NAME="${BITRISE_APP_TITLE}"
+            #export JFROG_CLI_BUILD_NUMBER="${BITRISE_BUILD_NUMBER:-1}"
+            envman add --key JFROG_CLI_BUILD_NAME --value "${BITRISE_APP_TITLE}"
+            envman add --key JFROG_CLI_BUILD_NUMBER --value "${BITRISE_BUILD_NUMBER}"
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - script@1:
+        title: Install an npm package from JFrog
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+            # Create package.json with react dependency
+            cat > package.json << 'EOF'
+            {
+              "name": "bitrise-build",
+              "version": "1.0.0",
+              "description": "Bitrise build with JFrog Artifactory",
+              "dependencies": {
+                "react": "19.2.0"
+              }
+            }
+            EOF
+
+            # write your script here
+            jf npm-config --repo-resolve=test-npm
+            #jf npm install react@19.2.0 --build-name="${BITRISE_APP_TITLE}" --build-number="${BITRISE_BUILD_NUMBER}"
+            jf npm install
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            # jf rt build-add-git
+            jf rt build-publish
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+        title: JFrog Publish Build Info
+  oidc-test:
+    steps:
+    - authenticate-with-aws@0:
+        inputs:
+        - audience: sts.amazonaws.com
+        - role_arn: arn:aws:iam::036806874769:role/OIDC-Bitrise-S3
+        - verbose: true
+    - git::https://github.com/naveen-bitrise/bitrise-step-get-identity-token.git@main:
+        title: Get OIDC toke custom
+        is_always_run: true
+        inputs:
+        - audience: sts.amazonaws.com
+        - verbose: true
+        run_if: false
+  flutter:
+    steps:
+    - script@1:
+        title: Set Flutter Version
+        inputs:
+        - content: |
+            #!/bin/bash
+            set -ex
+            FLUTTER_COMMIT="ea121f8859e4b13e47a8f845e4586164519588bc"
+            FLUTTER_DIR="$HOME/flutter-sdk"
+
+            envman add --key FLUTTER_COMMIT --value "$FLUTTER_COMMIT"
+            envman add --key FLUTTER_DIR --value "$FLUTTER_DIR"
+            envman add --key FLUTTER_CACHE_KEY --value "flutter-${FLUTTER_COMMIT}-v1"
+    - restore-cache@2:
+        inputs:
+        - paths: "$FLUTTER_DIR"
+        - key: "$FLUTTER_CACHE_KEY"
+    - script@1:
+        title: Setup Flutter
+        inputs:
+        - content: "#!/bin/bash
+
+            set -ex
+
+
+
+            if [ -x \"$FLUTTER_DIR/bin/flutter\" ]; then
+
+            \  echo \"✅ Flutter restored from cache!\"
+
+            \  export PATH=\"$FLUTTER_DIR/bin:$PATH\"
+
+            \  flutter --version
+
+            \  echo \"Dart version:\"
+
+            \  dart --version
+
+            \  envman add --key FLUTTER_FROM_CACHE --value \"true\"
+
+            else
+
+            \  echo \"📥 Downloading Flutter $FLUTTER_COMMIT...\"
+
+            \  rm -rf \"$FLUTTER_DIR\"
+
+            \  git clone https://github.com/flutter/flutter.git \"$FLUTTER_DIR\"
+
+            \  cd \"$FLUTTER_DIR\"
+
+            \  git checkout \"$FLUTTER_COMMIT\"
+
+            \  export PATH=\"$FLUTTER_DIR/bin:$PATH\"
+
+            \  flutter doctor -v
+
+            \  echo \"Flutter $FLUTTER_COMMIT instalado com sucesso!\"
+
+            \  echo \"Dart version:\"
+
+            \  dart --version
+
+            \  envman add --key FLUTTER_FROM_CACHE --value \"false\"
+
+            fi\n"
+    - save-cache@1:
+        inputs:
+        - key: "$FLUTTER_CACHE_KEY"
+        - paths: "$FLUTTER_DIR"
+        - is_key_unique: false
+        run_if: '{{ enveq "FLUTTER_FROM_CACHE" "false" }}'
+meta:
+  bitrise.io:
+    stack: osx-xcode-16.0.x
+    machine_type_id: g2-m1.4core
+app:
+  status_report_name: Executing Report Tests <target_id> for <project_title>
+  envs:
+  - test_input: hello
+    opts:
+      is_expand: false
+pipelines:
+  main-pipeline:
+    workflows:
+      workflow_1:
+        run_if:
+          expression: getenv "BITRISE_GIT_CHANGED_FILES" | regexMatch "^app/src/" | eq true
+      workflow_2: {}
+    triggers:
+      pull_request:
+      - target_branch: master
+        changed_files: "*"
+    status_report_name: Executing <target_id> for <project_title>
+  temp:
+    workflows:
+      temp1: {}
+step_bundles:
+  bundleA:
+    steps:
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            echo "$BITRISE_GIT_CHANGED_FILES"
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    inputs:
+    - inputA: A
+  bundleB:
+    steps:
+    - bundle::bundleA:
+        inputs:
+        - inputA: "$inputB"
+    inputs:
+    - inputB: B
+  bundleC:
+    steps:
+    - bundle::bundleB:
+        inputs:
+        - inputB: "$inputC"
+    inputs:
+    - inputC: "$test_input"

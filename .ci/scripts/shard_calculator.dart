@@ -172,8 +172,9 @@ Usage:
   dart shard_calculator.dart analyze <changed_files_json>
     Analyzes changed files and outputs affected packages
 
-  dart shard_calculator.dart shard <packages_csv> <shard_count>
-    Creates shards from comma-separated package list
+  dart shard_calculator.dart shard <packages_csv> <packages_per_shard>
+    Creates dynamic shards based on packages per shard ratio
+    Calculates optimal shard count automatically
 
   dart shard_calculator.dart auto <threshold> [changed_files_json]
     Automatically determines shard configuration
@@ -208,11 +209,18 @@ void main(List<String> args) {
 
       case 'shard':
         if (args.length < 3) {
-          stderr.writeln('Error: shard requires packages_csv and shard_count arguments');
+          stderr.writeln('Error: shard requires packages_csv and packages_per_shard arguments');
           exit(1);
         }
         final packages = args[1].split(',').where((p) => p.isNotEmpty).toList();
-        final shardCount = int.parse(args[2]);
+        final packagesPerShard = int.parse(args[2]);
+
+        // Calculate dynamic shard count based on package count
+        final shardCount = ShardCalculator.calculateOptimalShardCount(
+          packages.length,
+          packagesPerShard
+        );
+
         final shards = ShardCalculator.createShards(packages, shardCount);
 
         for (var i = 0; i < shards.length; i++) {
