@@ -205,10 +205,6 @@ Test results are also deployed to Bitrise artifacts via the `deploy-to-bitrise-i
 ## 🔗 Related Documentation
 
 - [Dynamic Sharding Branch](../../tree/dynamic-shards) - API-based dynamic sharding
-- [Stage-Based Sharding](README-SHARDING.md) - Legacy stage-based approach
-- [Graph Pipeline Guide](GRAPH-PIPELINE-GUIDE.md) - Deep dive into graph pipelines
-- [Comparison Guide](COMPARISON.md) - Stage vs Graph pipelines
-- [Quick Start](QUICKSTART.md) - Quick setup guide
 
 ## 🤝 Contributing
 
