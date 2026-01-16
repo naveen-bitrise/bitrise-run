@@ -7,9 +7,7 @@ project_type: flutter
 app:
   envs:
   - FLUTTER_VERSION: "3.24.0"
-  - SHARD_THRESHOLD: "4"  # Use sharding if more than 4 packages
-  - PACKAGES_PER_SHARD: "2"  # ~2 packages per shard
-  - SHARD_COUNT: "1"  # Default to 1 shard (updated dynamically by coordinator)
+  - SHARD_COUNT: "3"  # Fixed number of shards (always split tests across 3 shards)
 
 # Workflows
 workflows:
@@ -51,12 +49,31 @@ workflows:
             set -ex
 
             echo "Calculating shards based on changed files..."
+            echo "Fixed shard count: $SHARD_COUNT"
 
-            # Run the shard calculator
-            dart .ci/scripts/shard_calculator.dart auto $SHARD_THRESHOLD | while IFS='=' read -r key value; do
+            # Get changed files
+            CHANGED_FILES=$(git diff --name-only HEAD 2>/dev/null || echo "")
+            if [ -z "$CHANGED_FILES" ]; then
+              CHANGED_FILES_JSON="[]"
+            else
+              CHANGED_FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            fi
+
+            # Analyze to get affected packages
+            ANALYSIS=$(dart .ci/scripts/shard_calculator.dart analyze "$CHANGED_FILES_JSON")
+            ALL_PACKAGES=$(echo "$ANALYSIS" | jq -r '.all | join(",")')
+            MODIFIED_PACKAGES=$(echo "$ANALYSIS" | jq -r '.modified | join(",")')
+
+            echo "All affected packages: $ALL_PACKAGES"
+            echo "Modified packages: $MODIFIED_PACKAGES"
+
+            # Shard the packages using fixed SHARD_COUNT
+            dart .ci/scripts/shard_calculator.dart shard "$ALL_PACKAGES" $SHARD_COUNT | while IFS='=' read -r key value; do
               echo "$key=$value"
               envman add --key "$key" --value "$value"
             done
+
+            envman add --key MODIFIED_PACKAGES --value "$MODIFIED_PACKAGES"
 
             # Display shard configuration
             echo "===================="
@@ -91,14 +108,12 @@ workflows:
         title: Share pipeline variables
         inputs:
         - variables: |-
-            SHARD_COUNT
             SHARD_ARRAY
             MODIFIED_PACKAGES
 
-  # Dynamic shard worker - runs N times in parallel (where N = SHARD_COUNT)
-  # Each copy automatically gets $SHARD_INDEX (0, 1, 2, ..., N-1)
-  # When SHARD_COUNT=1, this runs once with all packages (shardless mode)
-  # When SHARD_COUNT>1, this runs in parallel (sharded mode)
+  # Fixed shard worker - runs N times in parallel (where N = SHARD_COUNT)
+  # Each parallel instance automatically gets $SHARD_INDEX (0, 1, 2, ..., N-1)
+  # Packages are distributed across all shards, some shards may be empty
   test_shard:
     description: Run tests for assigned shard packages
     steps:
@@ -343,22 +358,21 @@ workflows:
             fi
         is_always_run: false
 
-# Graph-based Pipeline with Dynamic Parallelism
+# Graph-based Pipeline with Fixed Parallelism
 pipelines:
   flutter_test_pipeline:
     workflows:
-      # Step 1: Analyze and calculate shards
+      # Step 1: Analyze packages and distribute across fixed shards
       shard_coordinator:
         depends_on: []
 
-      # Step 2: Run tests dynamically
-      # - If SHARD_COUNT=1: Runs once with all packages (shardless)
-      # - If SHARD_COUNT>1: Runs N times in parallel (sharded)
-      # - If SHARD_COUNT=0: Doesn't run (0 copies = skipped)
+      # Step 2: Run tests in parallel across fixed number of shards
+      # SHARD_COUNT is fixed (e.g., 5), packages are distributed evenly
+      # Empty shards will run but complete quickly with no tests
       test_shard:
         depends_on:
         - shard_coordinator
-        parallel: $SHARD_COUNT  # 🎯 Dynamic parallelism!
+        parallel: $SHARD_COUNT  # Fixed parallelism (e.g., 5 shards)
 
       # Step 3: Collect results after all shards complete
       collect_results:
