@@ -155,9 +155,9 @@ workflows:
                   \"commit_hash\": \"$GIT_CLONE_COMMIT_HASH\",
                   \"commit_message\": \"Dynamic shard test run - $CALCULATED_SHARD_COUNT shards\",
                   \"environments\": [
-                    {\"mapped_to\": \"SHARD_COUNT\", \"value\": \"$SHARD_COUNT\", \"is_expand\": false},
-                    {\"mapped_to\": \"SHARD_ARRAY\", \"value\": \"$SHARD_ARRAY\", \"is_expand\": false},
-                    {\"mapped_to\": \"MODIFIED_PACKAGES\", \"value\": \"$MODIFIED_PACKAGES\", \"is_expand\": false}
+                    {\"key\": \"SHARD_COUNT\", \"value\": \"$SHARD_COUNT\", \"is_expand\": false},
+                    {\"key\": \"SHARD_ARRAY\", \"value\": \"$SHARD_ARRAY\", \"is_expand\": false},
+                    {\"key\": \"MODIFIED_PACKAGES\", \"value\": \"$MODIFIED_PACKAGES\", \"is_expand\": false}
                   ]
                 }
               }")
