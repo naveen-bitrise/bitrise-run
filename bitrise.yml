@@ -141,6 +141,9 @@ workflows:
               exit 1
             fi
 
+            # Escape quotes in SHARD_ARRAY for JSON embedding
+            ESCAPED_SHARD_ARRAY=$(echo "$SHARD_ARRAY" | sed 's/"/\\"/g')
+
             # Trigger the test_pipeline via Bitrise Build Trigger API
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
               "https://api.bitrise.io/v0.1/apps/$BITRISE_APP_SLUG/builds" \
@@ -157,7 +160,7 @@ workflows:
                   \"commit_message\": \"Dynamic shard test run - $CALCULATED_SHARD_COUNT shards\",
                   \"environments\": [
                     {\"key\": \"SHARD_COUNT\", \"value\": \"$SHARD_COUNT\", \"is_expand\": false},
-                    {\"key\": \"SHARD_ARRAY\", \"value\": \"$SHARD_ARRAY\", \"is_expand\": false},
+                    {\"key\": \"SHARD_ARRAY\", \"value\": \"$ESCAPED_SHARD_ARRAY\", \"is_expand\": false},
                     {\"key\": \"MODIFIED_PACKAGES\", \"value\": \"$MODIFIED_PACKAGES\", \"is_expand\": false}
                   ]
                 }
