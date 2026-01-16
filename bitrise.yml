@@ -219,9 +219,11 @@ workflows:
 
               cd "packages/$package"
 
-              # Run tests and generate JUnit XML directly
-              # Flutter can output to file-reporter for JUnit format
-              JUNIT_OUTPUT="$BITRISE_TEST_RESULT_DIR/shard${BITRISE_IO_PARALLEL_INDEX}_${package}.xml"
+              # Create subdirectory for this test run
+              TEST_RUN_DIR="$BITRISE_TEST_RESULT_DIR/shard${BITRISE_IO_PARALLEL_INDEX}_${package}"
+              mkdir -p "$TEST_RUN_DIR"
+
+              JUNIT_OUTPUT="$TEST_RUN_DIR/junit.xml"
 
               if flutter test --reporter=expanded --file-reporter="json:test-output.json" 2>&1; then
                 echo "✅ $package tests passed"
@@ -235,20 +237,24 @@ workflows:
                 tojunit --input test-output.json --output "$JUNIT_OUTPUT" || {
                   # Fallback: create basic JUnit XML if conversion fails
                   echo "Warning: junitreport conversion failed, creating basic report"
-                  cat << EOF > "$JUNIT_OUTPUT"
+                  cat << 'XMLEOF' > "$JUNIT_OUTPUT"
             <?xml version="1.0" encoding="UTF-8"?>
-            <testsuites name="$package">
-              <testsuite name="$package" tests="1">
-                <testcase name="Tests" classname="$package">
+            <testsuites name="test">
+              <testsuite name="test" tests="1">
+                <testcase name="Tests" classname="test">
                 </testcase>
               </testsuite>
             </testsuites>
-            EOF
+            XMLEOF
                 }
                 echo "Generated JUnit report: $JUNIT_OUTPUT"
               else
                 echo "Warning: No test output found for $package"
               fi
+
+              # Create test-info.json with test name
+              echo "{\"test-name\":\"Shard $BITRISE_IO_PARALLEL_INDEX - $package\"}" > "$TEST_RUN_DIR/test-info.json"
+              echo "Generated test-info.json for $package"
 
               cd ../..
             done
