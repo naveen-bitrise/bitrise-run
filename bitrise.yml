@@ -7,16 +7,15 @@ project_type: flutter
 app:
   envs:
   - FLUTTER_VERSION: "3.24.0"
+  - SHARD_THRESHOLD: "4"  # If packages <= threshold, run in single shard mode
   - PACKAGES_PER_SHARD: "2"  # Number of packages per shard (calculates dynamic shard count)
-  #- SHARD_COUNT: "1"  # Will be set by shard_calculator when triggering test_pipeline
-  #- BITRISE_API_TOKEN: ""  # Set this as a Secret in Bitrise Workflow Editor
 
 # Workflows
 workflows:
 
-  # Main coordinator workflow - calculates shards and shares configuration
+  # Main coordinator workflow - calculates dynamic shards and shares configuration
   shard_coordinator:
-    description: Analyzes changed packages and calculates dynamic shards
+    description: Analyzes changed packages, calculates dynamic shard count, and distributes packages across shards
     steps:
     - git-clone@8: {}
 
@@ -44,38 +43,19 @@ workflows:
             melos bootstrap
 
     - script@1:
-        title: Calculate dynamic shards and trigger test pipeline
+        title: Calculate dynamic shards and create array
         inputs:
         - content: |-
             #!/bin/bash
             set -ex
 
             echo "Calculating dynamic shards based on changed files..."
+            echo "Shard threshold: $SHARD_THRESHOLD"
             echo "Packages per shard: $PACKAGES_PER_SHARD"
 
-            # Get changed files
-            CHANGED_FILES=$(git diff --name-only HEAD 2>/dev/null || echo "")
-            if [ -z "$CHANGED_FILES" ]; then
-              CHANGED_FILES_JSON="[]"
-            else
-              CHANGED_FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s -c 'split("\n") | map(select(length > 0))')
-            fi
-
-            # Analyze to get affected packages
-            ANALYSIS=$(dart .ci/scripts/shard_calculator.dart analyze "$CHANGED_FILES_JSON")
-            ALL_PACKAGES=$(echo "$ANALYSIS" | jq -r '.all | join(",")')
-            MODIFIED_PACKAGES=$(echo "$ANALYSIS" | jq -r '.modified | join(",")')
-
-            echo "All affected packages: $ALL_PACKAGES"
-            echo "Modified packages: $MODIFIED_PACKAGES"
-
-            # Count packages for display
-            PACKAGE_COUNT=$(echo "$ALL_PACKAGES" | tr ',' '\n' | grep -v '^$' | wc -l | tr -d ' ')
-            echo "Package count: $PACKAGE_COUNT"
-
-            # Shard the packages using PACKAGES_PER_SHARD (dart script calculates shard count)
-            # Capture output to both send to envman AND build SHARD_ARRAY
-            SHARD_OUTPUT=$(dart .ci/scripts/shard_calculator.dart shard "$ALL_PACKAGES" $PACKAGES_PER_SHARD)
+            # Run the shard calculator in auto mode
+            # It will analyze changes, detect threshold, and create shards automatically
+            SHARD_OUTPUT=$(dart .ci/scripts/shard_calculator.dart auto $SHARD_THRESHOLD)
 
             # Send all shard variables to envman and collect for array
             SHARD_VALUES=()
@@ -95,8 +75,6 @@ workflows:
 
               envman add --key "$key" --value "$value"
             done <<< "$SHARD_OUTPUT"
-
-            envman add --key MODIFIED_PACKAGES --value "$MODIFIED_PACKAGES"
 
             # Display shard configuration
             echo "===================="
@@ -125,67 +103,18 @@ workflows:
 
             envman add --key SHARD_ARRAY --value "$SHARD_ARRAY"
 
-    - script@1:
-        title: Trigger test_pipeline with calculated shard count
+    # Share pipeline variables using newline-separated format
+    - share-pipeline-variable@1:
+        title: Share pipeline variables
         inputs:
-        - content: |-
-            #!/bin/bash
-            set -ex
-
-            echo "Triggering test_pipeline with SHARD_COUNT=$SHARD_COUNT"
-
-            # Check if BITRISE_API_TOKEN is set
-            if [ -z "$BITRISE_API_TOKEN" ]; then
-              echo "ERROR: BITRISE_API_TOKEN is not set!"
-              echo "Please add it as a Secret in Bitrise Workflow Editor"
-              exit 1
-            fi
-
-            # Escape quotes in SHARD_ARRAY for JSON embedding
-            ESCAPED_SHARD_ARRAY=$(echo "$SHARD_ARRAY" | sed 's/"/\\"/g')
-
-            # Trigger the test_pipeline via Bitrise Build Trigger API
-            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-              "https://api.bitrise.io/v0.1/apps/$BITRISE_APP_SLUG/builds" \
-              -H "Authorization: token $BITRISE_API_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "{
-                \"hook_info\": {
-                  \"type\": \"bitrise\"
-                },
-                \"build_params\": {
-                  \"pipeline_id\": \"test_pipeline\",
-                  \"branch\": \"$BITRISE_GIT_BRANCH\",
-                  \"commit_hash\": \"$GIT_CLONE_COMMIT_HASH\",
-                  \"commit_message\": \"Dynamic shard test run - $CALCULATED_SHARD_COUNT shards\",
-                  \"environments\": [
-                    {\"key\": \"SHARD_COUNT\", \"value\": \"$SHARD_COUNT\", \"is_expand\": false},
-                    {\"key\": \"SHARD_ARRAY\", \"value\": \"$ESCAPED_SHARD_ARRAY\", \"is_expand\": false},
-                    {\"key\": \"MODIFIED_PACKAGES\", \"value\": \"$MODIFIED_PACKAGES\", \"is_expand\": false}
-                  ]
-                }
-              }")
-
-            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-            BODY=$(echo "$RESPONSE" | sed '$d')
-
-            echo "HTTP Status: $HTTP_CODE"
-            echo "Response: $BODY"
-
-            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-              BUILD_SLUG=$(echo "$BODY" | jq -r '.build_slug // empty')
-              BUILD_URL=$(echo "$BODY" | jq -r '.build_url // empty')
-              echo "✅ Test pipeline triggered successfully!"
-              echo "Build Slug: $BUILD_SLUG"
-              echo "Build URL: $BUILD_URL"
-            else
-              echo "❌ Failed to trigger test pipeline"
-              exit 1
-            fi
+        - variables: |-
+            SHARD_COUNT
+            SHARD_ARRAY
+            MODIFIED_PACKAGES
 
   # Dynamic shard worker - runs N times in parallel (where N = dynamically calculated SHARD_COUNT)
   # Each parallel instance automatically gets $BITRISE_IO_PARALLEL_INDEX (0, 1, 2, ..., N-1)
-  # N is determined by: ceil(package_count / PACKAGES_PER_SHARD)
+  # N is determined by: if packages <= threshold, N=1; else N=ceil(package_count / packages_per_shard)
   test_shard:
     description: Run tests for assigned shard packages
     steps:
@@ -261,7 +190,7 @@ workflows:
 
             echo "========================================="
             echo "Testing Shard $BITRISE_IO_PARALLEL_INDEX"
-            echo "Mode: Fixed sharding ($SHARD_COUNT shards in parallel)"
+            echo "Mode: Dynamic sharding ($SHARD_COUNT shards in parallel)"
             echo "Packages: $SHARD_PACKAGES"
             echo "========================================="
 
@@ -345,17 +274,22 @@ workflows:
         - deploy_path: test-results/
         - is_compress: 'true'
         - is_enable_public_page: 'false'
-# Pipelines
+
+# Graph-based Pipeline with Dynamic Parallelism
 pipelines:
-  # Main test pipeline - triggered by shard_calculator workflow via API
-  # SHARD_COUNT is passed as environment variable from shard_calculator
-  test_pipeline:
+  flutter_test_pipeline:
     workflows:
-      # Run tests in parallel - SHARD_COUNT determines number of parallel instances
-      # Each instance gets $BITRISE_IO_PARALLEL_INDEX (0, 1, 2, ..., SHARD_COUNT-1)
-      test_shard:
+      # Step 1: Analyze packages and calculate dynamic shard count
+      shard_coordinator:
         depends_on: []
-        parallel: $SHARD_COUNT  # Dynamic parallelism set by shard_calculator
+
+      # Step 2: Run tests in parallel across dynamically calculated shards
+      # SHARD_COUNT is calculated based on package count and threshold
+      # If packages <= threshold, runs in single shard; else ceil(packages / packages_per_shard)
+      test_shard:
+        depends_on:
+        - shard_coordinator
+        parallel: $SHARD_COUNT  # Dynamic parallelism based on package count
 
 
 # Default meta configuration
