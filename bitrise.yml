@@ -112,7 +112,7 @@ workflows:
             MODIFIED_PACKAGES
 
   # Fixed shard worker - runs N times in parallel (where N = SHARD_COUNT)
-  # Each parallel instance automatically gets $SHARD_INDEX (0, 1, 2, ..., N-1)
+  # Each parallel instance automatically gets $BITRISE_IO_PARALLEL_INDEX (0, 1, 2, ..., N-1)
   # Packages are distributed across all shards, some shards may be empty
   test_shard:
     description: Run tests for assigned shard packages
@@ -149,24 +149,24 @@ workflows:
             set -ex
 
             echo "========================================="
-            echo "Shard Index: $SHARD_INDEX"
+            echo "Shard Index: $BITRISE_IO_PARALLEL_INDEX"
             echo "Shard Count: $SHARD_COUNT"
             echo "Shard Array: $SHARD_ARRAY"
             echo "========================================="
 
             # Parse JSON array and extract packages for this shard index
             # SHARD_ARRAY is like: ["feature_a,feature_b", "feature_c,feature_d"]
-            # We want to get the element at index $SHARD_INDEX
+            # We want to get the element at index $BITRISE_IO_PARALLEL_INDEX
 
             # Use jq to parse JSON array (jq is pre-installed on Bitrise stacks)
-            PACKAGES=$(echo "$SHARD_ARRAY" | jq -r ".[$SHARD_INDEX]")
+            PACKAGES=$(echo "$SHARD_ARRAY" | jq -r ".[$BITRISE_IO_PARALLEL_INDEX]")
 
             if [ -z "$PACKAGES" ] || [ "$PACKAGES" = "null" ]; then
-              echo "ERROR: No packages found for shard $SHARD_INDEX"
+              echo "ERROR: No packages found for shard $BITRISE_IO_PARALLEL_INDEX"
               exit 1
             fi
 
-            echo "Packages for shard $SHARD_INDEX: $PACKAGES"
+            echo "Packages for shard $BITRISE_IO_PARALLEL_INDEX: $PACKAGES"
             envman add --key SHARD_PACKAGES --value "$PACKAGES"
 
     - script@1:
@@ -188,12 +188,8 @@ workflows:
             export PATH="$PATH:$HOME/.pub-cache/bin"
 
             echo "========================================="
-            echo "Testing Shard $SHARD_INDEX"
-            if [ "$SHARD_COUNT" = "1" ]; then
-              echo "Mode: Shardless (all packages in one shard)"
-            else
-              echo "Mode: Sharded ($SHARD_COUNT shards in parallel)"
-            fi
+            echo "Testing Shard $BITRISE_IO_PARALLEL_INDEX"
+            echo "Mode: Fixed sharding ($SHARD_COUNT shards in parallel)"
             echo "Packages: $SHARD_PACKAGES"
             echo "========================================="
 
@@ -215,7 +211,7 @@ workflows:
 
               # Run tests and generate JUnit XML directly
               # Flutter can output to file-reporter for JUnit format
-              JUNIT_OUTPUT="$BITRISE_TEST_RESULT_DIR/shard${SHARD_INDEX}_${package}.xml"
+              JUNIT_OUTPUT="$BITRISE_TEST_RESULT_DIR/shard${BITRISE_IO_PARALLEL_INDEX}_${package}.xml"
 
               if flutter test --reporter=expanded --file-reporter="json:test-output.json" 2>&1; then
                 echo "✅ $package tests passed"
@@ -251,7 +247,7 @@ workflows:
             echo "========================================="
             echo "Test Results Summary"
             echo "========================================="
-            echo "Shard: $SHARD_INDEX"
+            echo "Shard: $BITRISE_IO_PARALLEL_INDEX"
             echo "Packages tested: ${#PKG_ARRAY[@]}"
             echo "JUnit reports generated in: $BITRISE_TEST_RESULT_DIR"
             ls -la "$BITRISE_TEST_RESULT_DIR" || echo "No reports generated"
@@ -259,12 +255,12 @@ workflows:
 
             if [ $FAILED -eq 1 ]; then
               echo ""
-              echo "❌ Shard $SHARD_INDEX: Some tests failed!"
+              echo "❌ Shard $BITRISE_IO_PARALLEL_INDEX: Some tests failed!"
               exit 1
             fi
 
             echo ""
-            echo "✅ Shard $SHARD_INDEX: All tests passed!"
+            echo "✅ Shard $BITRISE_IO_PARALLEL_INDEX: All tests passed!"
 
     - deploy-to-bitrise-io@2:
         title: Deploy test results
