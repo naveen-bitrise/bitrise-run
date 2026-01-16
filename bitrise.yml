@@ -55,7 +55,7 @@ workflows:
 
             # Run the shard calculator in auto mode
             # It will analyze changes, detect threshold, and create shards automatically
-            SHARD_OUTPUT=$(dart .ci/scripts/shard_calculator.dart auto $SHARD_THRESHOLD)
+            SHARD_OUTPUT=$(dart .ci/scripts/shard_calculator.dart auto $SHARD_THRESHOLD $PACKAGES_PER_SHARD)
 
             # Send all shard variables to envman and collect for array
             SHARD_VALUES=()

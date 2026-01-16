@@ -176,14 +176,17 @@ Usage:
     Creates dynamic shards based on packages per shard ratio
     Calculates optimal shard count automatically
 
-  dart shard_calculator.dart auto <threshold> [changed_files_json]
+  dart shard_calculator.dart auto <threshold> [packages_per_shard] [changed_files_json]
     Automatically determines shard configuration
-    If changed_files_json is omitted, analyzes git diff
+    threshold: If packages <= threshold, run in single shard mode
+    packages_per_shard: Number of packages per shard (default: 2)
+    changed_files_json: If omitted, analyzes git diff
 
 Examples:
   dart shard_calculator.dart analyze '["packages/feature_a/lib/main.dart"]'
   dart shard_calculator.dart shard "feature_a,feature_b,feature_c" 2
   dart shard_calculator.dart auto 4
+  dart shard_calculator.dart auto 4 2
 ''');
 }
 
@@ -231,11 +234,12 @@ void main(List<String> args) {
 
       case 'auto':
         final threshold = args.length > 1 ? int.parse(args[1]) : DEFAULT_THRESHOLD;
+        final packagesPerShard = args.length > 2 ? int.parse(args[2]) : DEFAULT_PACKAGES_PER_SHARD;
 
         // Get changed files from git or JSON
         List<String> changedFiles;
-        if (args.length > 2) {
-          changedFiles = (jsonDecode(args[2]) as List).cast<String>();
+        if (args.length > 3) {
+          changedFiles = (jsonDecode(args[3]) as List).cast<String>();
         } else {
           // Get changed files from git diff
           final result = Process.runSync('git', ['diff', '--name-only', 'HEAD']);
@@ -265,7 +269,7 @@ void main(List<String> args) {
           // Multiple shards
           final shardCount = ShardCalculator.calculateOptimalShardCount(
             allPackages.length,
-            DEFAULT_PACKAGES_PER_SHARD,
+            packagesPerShard,
           );
           shards = ShardCalculator.createShards(allPackages, shardCount);
         }
