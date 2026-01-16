@@ -277,6 +277,12 @@ workflows:
 
             echo ""
             echo "✅ Shard $BITRISE_IO_PARALLEL_INDEX: All tests passed!"
+    - deploy-to-bitrise-io@2:
+        title: Deploy test results
+        inputs:
+        - deploy_path: test-results/
+        - is_compress: 'true'
+        - is_enable_public_page: 'false'
 
 # Graph-based Pipeline with Fixed Parallelism
 pipelines:
