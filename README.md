@@ -15,10 +15,13 @@ This repository demonstrates test sharding for Flutter monorepo projects using B
 ## 📋 Branches
 
 ### `main` - Fixed Sharding (Current)
-Fixed number of shards that always run in parallel. Simpler approach, good for consistent workloads. Packages are distributed evenly across all shards.
+Fixed number of shards (3) that always run in parallel. Simpler approach, good for consistent workloads. Packages are distributed evenly across all shards.
 
-### `dynamic-shards` - Dynamic Sharding (Recommended)
-Dynamically calculates shard count based on package changes. Uses API-based triggering for optimal resource usage.
+### `dynamic-shards` - Dynamic Sharding with API Triggering
+Dynamically calculates shard count and triggers test pipeline via Bitrise Build Trigger API. Requires API token.
+
+### `dynamic-sharding-v2` - Dynamic Sharding with Graph Pipeline (Recommended)
+Dynamically calculates shard count using graph pipeline and share-pipeline-variable. Includes threshold mode for small changes. No API token required - uses native Bitrise graph pipeline features.
 
 ## 🚀 Quick Start
 
@@ -192,19 +195,22 @@ Test results are also deployed to Bitrise artifacts via the `deploy-to-bitrise-i
 - Check Melos bootstrap completed successfully
 - Ensure package names match directory names
 
-## 🆚 Comparison: Fixed vs Dynamic Sharding
+## 🆚 Comparison: Branch Approaches
 
-| Feature | Fixed (main) | Dynamic (dynamic-shards) |
-|---------|-------------|--------------------------|
-| Shard Count | Always fixed (e.g., 3) | Calculated per build |
-| Resource Usage | May waste resources on empty shards | Optimal |
-| Configuration | Simple, no API token needed | Requires API token |
-| Best For | Stable workloads, consistent package count | Variable changes, cost optimization |
-| Complexity | Lower | Higher (API triggering) |
+| Feature | main | dynamic-shards | dynamic-sharding-v2 |
+|---------|------|----------------|---------------------|
+| Shard Count | Fixed (3) | Dynamic | Dynamic with threshold |
+| Architecture | Graph pipeline | API triggering | Graph pipeline |
+| API Token | Not required | Required | Not required |
+| Threshold Mode | No | No | Yes (single shard ≤ threshold) |
+| Complexity | Low | Medium | Low |
+| Resource Usage | May waste | Optimal | Optimal |
+| Best For | Stable workloads | Variable changes | Variable changes (recommended) |
 
 ## 🔗 Related Documentation
 
-- [Dynamic Sharding Branch](../../tree/dynamic-shards) - API-based dynamic sharding
+- [Dynamic Sharding with API](../../tree/dynamic-shards) - API-based dynamic sharding
+- [Dynamic Sharding v2](../../tree/dynamic-sharding-v2) - Graph pipeline dynamic sharding (recommended)
 
 ## 🤝 Contributing
 
