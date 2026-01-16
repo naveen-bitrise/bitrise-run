@@ -151,6 +151,7 @@ workflows:
                   \"type\": \"bitrise\"
                 },
                 \"build_params\": {
+                  \"pipeline_id\": \"test_pipeline\",
                   \"branch\": \"$BITRISE_GIT_BRANCH\",
                   \"commit_hash\": \"$GIT_CLONE_COMMIT_HASH\",
                   \"commit_message\": \"Dynamic shard test run - $CALCULATED_SHARD_COUNT shards\",
