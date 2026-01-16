@@ -8,7 +8,7 @@ app:
   envs:
   - FLUTTER_VERSION: "3.24.0"
   - PACKAGES_PER_SHARD: "2"  # Number of packages per shard (calculates dynamic shard count)
-  - SHARD_COUNT: "1"  # Will be set by shard_calculator when triggering test_pipeline
+  #- SHARD_COUNT: "1"  # Will be set by shard_calculator when triggering test_pipeline
   #- BITRISE_API_TOKEN: ""  # Set this as a Secret in Bitrise Workflow Editor
 
 # Workflows
