@@ -358,7 +358,7 @@ pipelines:
       test_shard:
         depends_on:
         - shard_coordinator
-        copies: $SHARD_COUNT  # 🎯 Dynamic parallelism!
+        parallel: $SHARD_COUNT  # 🎯 Dynamic parallelism!
 
       # Step 3: Collect results after all shards complete
       collect_results:
