@@ -4,7 +4,7 @@ This repository demonstrates test sharding for Flutter monorepo projects using B
 
 ## 🌟 Features
 
-- **Fixed Shard Configuration**: Run tests across a fixed number of parallel shards
+- **Shard Configuration**: Run tests across a fixed number of parallel shards
 - **Intelligent Package Detection**: Detects modified packages and their dependents
 - **Automatic Package Distribution**: Evenly distributes packages across shards
 - **Graph Pipeline Architecture**: Uses Bitrise Graph Pipelines for dependency management
