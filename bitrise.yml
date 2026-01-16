@@ -68,10 +68,21 @@ workflows:
             echo "Modified packages: $MODIFIED_PACKAGES"
 
             # Shard the packages using fixed SHARD_COUNT
-            dart .ci/scripts/shard_calculator.dart shard "$ALL_PACKAGES" $SHARD_COUNT | while IFS='=' read -r key value; do
+            # Capture output to both send to envman AND build SHARD_ARRAY
+            SHARD_OUTPUT=$(dart .ci/scripts/shard_calculator.dart shard "$ALL_PACKAGES" $SHARD_COUNT)
+
+            # Send all shard variables to envman and collect for array
+            SHARD_VALUES=()
+            while IFS='=' read -r key value; do
               echo "$key=$value"
+
+              # Store SHARD_X_PACKAGES values in array for SHARD_ARRAY
+              if [[ "$key" == SHARD_*_PACKAGES ]]; then
+                SHARD_VALUES+=("$value")
+              fi
+
               envman add --key "$key" --value "$value"
-            done
+            done <<< "$SHARD_OUTPUT"
 
             envman add --key MODIFIED_PACKAGES --value "$MODIFIED_PACKAGES"
 
@@ -81,12 +92,11 @@ workflows:
             echo "===================="
             echo "Shard Count: $SHARD_COUNT"
 
-            # Create JSON array of shard assignments
+            # Create JSON array of shard assignments from captured values
             # Format: ["feature_a,feature_b", "feature_c,feature_d", ...]
             SHARD_ARRAY="["
-            for i in $(seq 0 $((SHARD_COUNT-1))); do
-              var_name="SHARD_${i}_PACKAGES"
-              packages="${!var_name}"
+            for i in "${!SHARD_VALUES[@]}"; do
+              packages="${SHARD_VALUES[$i]}"
 
               if [ $i -gt 0 ]; then
                 SHARD_ARRAY="${SHARD_ARRAY},"
