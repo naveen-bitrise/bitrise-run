@@ -16,7 +16,9 @@ workflows:
   shard_coordinator:
     description: Analyzes changed packages and calculates dynamic shards
     steps:
-    - git-clone@8: {}
+    - git-clone@8:
+        inputs:
+        - manual_merge: "no"
 
     - flutter-installer@1:
         inputs:
@@ -127,7 +129,9 @@ workflows:
   test_shard:
     description: Run tests for assigned shard packages
     steps:
-    - git-clone@8: {}
+    - git-clone@8:
+        inputs:
+        - manual_merge: "no"
 
     - flutter-installer@1:
         inputs:
