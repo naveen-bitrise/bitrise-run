@@ -2,29 +2,21 @@
 format_version: '13'
 default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
 project_type: flutter
-
-# Environment variables
 app:
   envs:
-  - FLUTTER_VERSION: "3.24.0"
-  - SHARD_COUNT: "3"  # Fixed number of shards (always split tests across 3 shards)
-
-# Workflows
+  - FLUTTER_VERSION: 3.24.0
+  - SHARD_THRESHOLD: '4'
+  - PACKAGES_PER_SHARD: '4'
 workflows:
-
-  # Main coordinator workflow - calculates shards and shares configuration
   shard_coordinator:
-    description: Analyzes changed packages and calculates dynamic shards
+    description: Analyzes changed packages, calculates dynamic shard count, and
+      distributes packages across shards
     steps:
-    - git-clone@8:
-        inputs:
-        - manual_merge: "no"
-
+    - git-clone@8: {}
     - flutter-installer@1:
         inputs:
-        - version: $FLUTTER_VERSION
-        - is_update: "false"
-
+        - version: "$FLUTTER_VERSION"
+        - is_update: 'false'
     - script@1:
         title: Install Melos
         inputs:
@@ -33,7 +25,6 @@ workflows:
             set -ex
             flutter pub global activate melos
             export PATH="$PATH:$HOME/.pub-cache/bin"
-
     - script@1:
         title: Bootstrap packages
         inputs:
@@ -42,39 +33,24 @@ workflows:
             set -ex
             export PATH="$PATH:$HOME/.pub-cache/bin"
             melos bootstrap
-
     - script@1:
-        title: Calculate test shards and create array
+        title: Calculate dynamic shards and create array
         inputs:
         - content: |-
             #!/bin/bash
             set -ex
 
-            echo "Calculating shards based on changed files..."
-            echo "Fixed shard count: $SHARD_COUNT"
+            echo "Calculating dynamic shards based on changed files..."
+            echo "Shard threshold: $SHARD_THRESHOLD"
+            echo "Packages per shard: $PACKAGES_PER_SHARD"
 
-            # Get changed files
-            CHANGED_FILES=$(git diff --name-only HEAD 2>/dev/null || echo "")
-            if [ -z "$CHANGED_FILES" ]; then
-              CHANGED_FILES_JSON="[]"
-            else
-              CHANGED_FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s -c 'split("\n") | map(select(length > 0))')
-            fi
-
-            # Analyze to get affected packages
-            ANALYSIS=$(dart .ci/scripts/shard_calculator.dart analyze "$CHANGED_FILES_JSON")
-            ALL_PACKAGES=$(echo "$ANALYSIS" | jq -r '.all | join(",")')
-            MODIFIED_PACKAGES=$(echo "$ANALYSIS" | jq -r '.modified | join(",")')
-
-            echo "All affected packages: $ALL_PACKAGES"
-            echo "Modified packages: $MODIFIED_PACKAGES"
-
-            # Shard the packages using fixed SHARD_COUNT
-            # Capture output to both send to envman AND build SHARD_ARRAY
-            SHARD_OUTPUT=$(dart .ci/scripts/shard_calculator.dart shard "$ALL_PACKAGES" $SHARD_COUNT)
+            # Run the shard calculator in auto mode
+            # It will analyze changes, detect threshold, and create shards automatically
+            SHARD_OUTPUT=$(dart .ci/scripts/shard_calculator.dart auto $SHARD_THRESHOLD $PACKAGES_PER_SHARD)
 
             # Send all shard variables to envman and collect for array
             SHARD_VALUES=()
+            CALCULATED_SHARD_COUNT=0
             while IFS='=' read -r key value; do
               echo "$key=$value"
 
@@ -83,16 +59,19 @@ workflows:
                 SHARD_VALUES+=("$value")
               fi
 
+              # Capture SHARD_COUNT
+              if [[ "$key" == "SHARD_COUNT" ]]; then
+                CALCULATED_SHARD_COUNT=$value
+              fi
+
               envman add --key "$key" --value "$value"
             done <<< "$SHARD_OUTPUT"
-
-            envman add --key MODIFIED_PACKAGES --value "$MODIFIED_PACKAGES"
 
             # Display shard configuration
             echo "===================="
             echo "Shard Configuration:"
             echo "===================="
-            echo "Shard Count: $SHARD_COUNT"
+            echo "Shard Count: $CALCULATED_SHARD_COUNT"
 
             # Create JSON array of shard assignments from captured values
             # Format: ["feature_a,feature_b", "feature_c,feature_d", ...]
@@ -114,29 +93,20 @@ workflows:
             echo "===================="
 
             envman add --key SHARD_ARRAY --value "$SHARD_ARRAY"
-
-    # Share pipeline variables using newline-separated format
     - share-pipeline-variable@1:
         title: Share pipeline variables
         inputs:
         - variables: |-
+            SHARD_COUNT
             SHARD_ARRAY
             MODIFIED_PACKAGES
-
-  # Fixed shard worker - runs N times in parallel (where N = SHARD_COUNT)
-  # Each parallel instance automatically gets $BITRISE_IO_PARALLEL_INDEX (0, 1, 2, ..., N-1)
-  # Packages are distributed across all shards, some shards may be empty
   test_shard:
     description: Run tests for assigned shard packages
     steps:
-    - git-clone@8:
-        inputs:
-        - manual_merge: "no"
-
+    - git-clone@8: {}
     - flutter-installer@1:
         inputs:
-        - version: $FLUTTER_VERSION
-
+        - version: "$FLUTTER_VERSION"
     - script@1:
         title: Install Melos
         inputs:
@@ -145,7 +115,6 @@ workflows:
             set -ex
             flutter pub global activate melos
             export PATH="$PATH:$HOME/.pub-cache/bin"
-
     - script@1:
         title: Bootstrap packages
         inputs:
@@ -154,7 +123,6 @@ workflows:
             set -ex
             export PATH="$PATH:$HOME/.pub-cache/bin"
             melos bootstrap
-
     - script@1:
         title: Extract packages for this shard from array
         inputs:
@@ -182,7 +150,6 @@ workflows:
 
             echo "Packages for shard $BITRISE_IO_PARALLEL_INDEX: $PACKAGES"
             envman add --key SHARD_PACKAGES --value "$PACKAGES"
-
     - script@1:
         title: Install test report tool
         inputs:
@@ -192,7 +159,6 @@ workflows:
 
             # Install junitreport for converting Flutter JSON to JUnit XML
             flutter pub global activate junitreport
-
     - script@1:
         title: Run tests for assigned packages
         inputs:
@@ -203,7 +169,7 @@ workflows:
 
             echo "========================================="
             echo "Testing Shard $BITRISE_IO_PARALLEL_INDEX"
-            echo "Mode: Fixed sharding ($SHARD_COUNT shards in parallel)"
+            echo "Mode: Dynamic sharding ($SHARD_COUNT shards in parallel)"
             echo "Packages: $SHARD_PACKAGES"
             echo "========================================="
 
@@ -287,25 +253,872 @@ workflows:
         - deploy_path: test-results/
         - is_compress: 'true'
         - is_enable_public_page: 'false'
+  release_flow:
+    steps:
+    - script@1:
+        inputs:
+        - content: "#!/usr/bin/env bash
 
-# Graph-based Pipeline with Fixed Parallelism
+            set -e
+
+
+            # --- CONFIG ---
+
+            API_TOKEN=\"$BITRISE_API_TOKEN\"
+
+            APP_SLUG=\"$BITRISE_APP_SLUG\"
+
+            MY_BUILD=\"$BITRISE_BUILD_NUMBER\"
+
+            BASE_URL=\"https://api.bitrise.io/v0.1/apps/$APP_SLUG/secrets\"
+
+            EMPTY_VAL=\"-9999\"
+
+
+            # --- HELPER FUNCTIONS ---
+
+
+            get_secret_value() {
+
+            \    local KEY_NAME=$1
+
+            \    local TMP_BODY=$(mktemp)
+
+            \    local HTTP_CODE=$(curl -s -o \"$TMP_BODY\" -w \"%{http_code}\"
+            -H \"Authorization: $API_TOKEN\" \"$BASE_URL/$KEY_NAME\")
+
+            \   \ 
+
+            \    if [ \"$HTTP_CODE\" == \"404\" ]; then
+
+            \        echo \"NOT_FOUND\"
+
+            \    else
+
+            \        cat \"$TMP_BODY\" | jq -r \".value // \\\"$EMPTY_VAL\\\"\"
+
+            \    fi
+
+            \    rm -f \"$TMP_BODY\"
+
+            }
+
+
+            set_secret_value() {
+
+            \    local KEY_NAME=$1
+
+            \    local VAL=$2
+
+            \    local METHOD=$3 # \"PATCH\" or \"POST\"
+
+            \   \ 
+
+            \    if [ -z \"$VAL\" ]; then VAL=\"$EMPTY_VAL\"; fi
+
+            \    if [ -z \"$METHOD\" ]; then METHOD=\"PATCH\"; fi\ 
+
+
+            \    local TMP_LOG=$(mktemp)
+
+            \    local HTTP_CODE=\"\"
+
+
+            \    echo \"Setting $KEY_NAME to '$VAL' via $METHOD...\"
+
+
+            \    if [ \"$METHOD\" == \"POST\" ]; then
+
+            \        HTTP_CODE=$(curl -s -o \"$TMP_LOG\" -w \"%{http_code}\" -X
+            POST \"$BASE_URL\" \\
+
+            \             -H \"Authorization: $API_TOKEN\" \\
+
+            \             -H \"Content-Type: application/json\" \\
+
+            \             -d \"{\\\"name\\\": \\\"$KEY_NAME\\\", \\\"value\\\":
+            \\\"$VAL\\\", \\\"is_protected\\\": false}\")
+
+            \    else
+
+            \        HTTP_CODE=$(curl -s -o \"$TMP_LOG\" -w \"%{http_code}\" -X
+            PATCH \"$BASE_URL/$KEY_NAME\" \\
+
+            \             -H \"Authorization: $API_TOKEN\" \\
+
+            \             -H \"Content-Type: application/json\" \\
+
+            \             -d \"{\\\"value\\\": \\\"$VAL\\\",
+            \\\"is_protected\\\": false}\")
+
+            \    fi
+
+            \   \ 
+
+            \    echo \"  > Status: $HTTP_CODE\"
+
+            \    rm -f \"$TMP_LOG\"
+
+
+            \    if [[ \"$HTTP_CODE\" != \"200\" && \"$HTTP_CODE\" != \"201\"
+            ]]; then
+
+            \        echo \"Error: Failed to set secret. Aborting.\"
+
+            \        exit 1
+
+            \    fi
+
+            }
+
+
+            echo \"--- Checking Queue via API ---\"
+
+
+            # 1. Check RELEASE_CURRENT_BUILD
+
+            CURRENT_VAL=$(get_secret_value \"RELEASE_CURRENT_BUILD\")
+
+            CURRENT_METHOD=\"PATCH\"
+
+
+            if [ \"$CURRENT_VAL\" == \"NOT_FOUND\" ]; then
+
+            \    CURRENT_VAL=\"$EMPTY_VAL\"
+
+            \    CURRENT_METHOD=\"POST\"
+
+            fi
+
+
+            # 2. Check RELEASE_NEXT_BUILD
+
+            NEXT_VAL=$(get_secret_value \"RELEASE_NEXT_BUILD\")
+
+            NEXT_METHOD=\"PATCH\"
+
+
+            if [ \"$NEXT_VAL\" == \"NOT_FOUND\" ]; then
+
+            \    NEXT_VAL=\"$EMPTY_VAL\"
+
+            \    NEXT_METHOD=\"POST\"
+
+            fi
+
+
+            echo \"Lock Holder: [$CURRENT_VAL]\"
+
+            echo \"Queue Line:  [$NEXT_VAL]\"
+
+
+            # --- LOGIC ---
+
+
+            if [ \"$CURRENT_VAL\" == \"$EMPTY_VAL\" ]; then
+
+            \    # SCENARIO: Lock is free
+
+            \    echo \"Lock is free. Taking it.\"
+
+            \    set_secret_value \"RELEASE_CURRENT_BUILD\" \"$MY_BUILD\"
+            \"$CURRENT_METHOD\"
+
+
+            else
+
+            \    # SCENARIO: Lock is taken
+
+            \    echo \"Build $CURRENT_VAL is running.\"
+
+            \   \ 
+
+            \    # --- FIX IS HERE ---
+
+            \    # We must treat EMPTY_VAL as an empty string to prevent
+            \"-9999,19,20\"
+
+            \    if [ \"$NEXT_VAL\" == \"$EMPTY_VAL\" ]; then\ 
+
+            \        QUEUE=\"\"
+
+            \    else\ 
+
+            \        QUEUE=\"$NEXT_VAL\"
+
+            \    fi
+
+            \   \ 
+
+            \    if [[ \",$QUEUE,\" == *\",$MY_BUILD,\"* ]]; then
+
+            \        echo \"I am already in the queue.\"
+
+            \    else
+
+            \        if [ -z \"$QUEUE\" ]; then
+
+            \            NEW_QUEUE=\"$MY_BUILD\"
+
+            \        else
+
+            \            NEW_QUEUE=\"$QUEUE,$MY_BUILD\"
+
+            \        fi
+
+            \       \ 
+
+            \        echo \"Appending to queue: $NEW_QUEUE\"
+
+            \        set_secret_value \"RELEASE_NEXT_BUILD\" \"$NEW_QUEUE\"
+            \"$NEXT_METHOD\"
+
+            \    fi
+
+
+            \    # WAIT LOOP
+
+            \    echo \"Waiting for my turn...\"
+
+            \    while true; do
+
+            \        sleep 60
+
+            \       \ 
+
+            \        CHECK_VAL=$(get_secret_value \"RELEASE_CURRENT_BUILD\")
+
+            \        if [ \"$CHECK_VAL\" == \"NOT_FOUND\" ]; then
+            CHECK_VAL=\"$EMPTY_VAL\"; fi
+
+
+            \        if [ \"$CHECK_VAL\" == \"$MY_BUILD\" ]; then
+
+            \            echo \"It matches my ID! Starting build...\"
+
+            \            break
+
+            \        fi
+
+            \        echo \"Still waiting. Current lock: $CHECK_VAL\"
+
+            \    done
+
+            fi"
+        title: Release Queue Check
+        run_if: false
+    - script@1:
+        title: Release Queue Check
+        inputs:
+        - content: "#!/usr/bin/env bash
+
+            set -e
+
+
+            # --- CONFIG ---
+
+            API_TOKEN=\"$BITRISE_API_TOKEN\"
+
+            APP_SLUG=\"$BITRISE_APP_SLUG\"
+
+            MY_BUILD=\"$BITRISE_BUILD_NUMBER\"
+
+            WORKFLOW_ID=\"$BITRISE_TRIGGERED_WORKFLOW_ID\"
+
+
+            # Dynamic Variable Names
+
+            VAR_CURRENT=\"${WORKFLOW_ID}_CURRENT_BUILD\"
+
+            VAR_NEXT=\"${WORKFLOW_ID}_NEXT_BUILD\"
+
+
+            BASE_URL=\"https://api.bitrise.io/v0.1/apps/$APP_SLUG\"
+
+            SECRETS_URL=\"$BASE_URL/secrets\"
+
+            EMPTY_VAL=\"-9999\"
+
+
+            # --- HELPER FUNCTIONS ---
+
+
+            get_secret_value() {
+
+            \    local KEY_NAME=$1
+
+            \    local TMP_BODY=$(mktemp)
+
+            \    local HTTP_CODE=$(curl -s -o \"$TMP_BODY\" -w \"%{http_code}\"
+            -H \"Authorization: $API_TOKEN\" \"$SECRETS_URL/$KEY_NAME\")
+
+            \   \ 
+
+            \    if [ \"$HTTP_CODE\" == \"404\" ]; then
+
+            \        echo \"NOT_FOUND\"
+
+            \    else
+
+            \        cat \"$TMP_BODY\" | jq -r \".value // \\\"$EMPTY_VAL\\\"\"
+
+            \    fi
+
+            \    rm -f \"$TMP_BODY\"
+
+            }
+
+
+            set_secret_value() {
+
+            \    local KEY_NAME=$1
+
+            \    local VAL=$2
+
+            \    local METHOD=$3 # \"PATCH\" or \"POST\"
+
+            \   \ 
+
+            \    if [ -z \"$VAL\" ]; then VAL=\"$EMPTY_VAL\"; fi
+
+            \    if [ -z \"$METHOD\" ]; then METHOD=\"PATCH\"; fi\ 
+
+
+            \    local TMP_LOG=$(mktemp)
+
+            \    local HTTP_CODE=\"\"
+
+
+            \    if [ \"$METHOD\" == \"POST\" ]; then
+
+            \        HTTP_CODE=$(curl -s -o \"$TMP_LOG\" -w \"%{http_code}\" -X
+            POST \"$SECRETS_URL\" \\
+
+            \             -H \"Authorization: $API_TOKEN\" \\
+
+            \             -H \"Content-Type: application/json\" \\
+
+            \             -d \"{\\\"name\\\": \\\"$KEY_NAME\\\", \\\"value\\\":
+            \\\"$VAL\\\", \\\"is_protected\\\": false}\")
+
+            \    else
+
+            \        HTTP_CODE=$(curl -s -o \"$TMP_LOG\" -w \"%{http_code}\" -X
+            PATCH \"$SECRETS_URL/$KEY_NAME\" \\
+
+            \             -H \"Authorization: $API_TOKEN\" \\
+
+            \             -H \"Content-Type: application/json\" \\
+
+            \             -d \"{\\\"value\\\": \\\"$VAL\\\",
+            \\\"is_protected\\\": false}\")
+
+            \    fi
+
+            \   \ 
+
+            \    # Retry logic: If PATCH failed with 404, try POST
+
+            \    if [ \"$HTTP_CODE\" == \"404\" ] && [ \"$METHOD\" == \"PATCH\"
+            ]; then
+
+            \         echo \"Secret $KEY_NAME missing (404) on update.
+            Creating...\" >&2
+
+            \         HTTP_CODE=$(curl -s -o \"$TMP_LOG\" -w \"%{http_code}\" -X
+            POST \"$SECRETS_URL\" \\
+
+            \             -H \"Authorization: $API_TOKEN\" \\
+
+            \             -H \"Content-Type: application/json\" \\
+
+            \             -d \"{\\\"name\\\": \\\"$KEY_NAME\\\", \\\"value\\\":
+            \\\"$VAL\\\", \\\"is_protected\\\": false}\")
+
+            \    fi
+
+
+            \    rm -f \"$TMP_LOG\"
+
+            \    if [[ \"$HTTP_CODE\" != \"200\" && \"$HTTP_CODE\" != \"201\"
+            ]]; then
+
+            \        echo \"Error setting secret $KEY_NAME. Status: $HTTP_CODE\"
+            >&2
+
+            \        exit 1
+
+            \    fi
+
+            }
+
+
+            check_and_heal_queue() {
+
+            \    echo \"--- Performing Self-Healing Check ---\" >&2
+
+
+            \    # 1. Fetch Running Builds
+
+            \    local RUNNING_BUILDS_JSON=$(curl -s -X GET
+            \"$BASE_URL/builds?status=0&workflow=$WORKFLOW_ID&page_size=50\" \\
+
+            \        -H \"Authorization: $API_TOKEN\")
+
+            \   \ 
+
+            \    local RUNNING_IDS=$(echo \"$RUNNING_BUILDS_JSON\" | jq -r
+            '.data[]?.build_number // empty')
+
+            \   \ 
+
+            \    # 2. Fetch Secrets
+
+            \    local CUR_VAL=$(get_secret_value \"$VAR_CURRENT\")
+
+            \    local CUR_METHOD=\"PATCH\"
+
+            \    if [ \"$CUR_VAL\" == \"NOT_FOUND\" ]; then
+            CUR_VAL=\"$EMPTY_VAL\"; CUR_METHOD=\"POST\"; fi
+
+
+            \    local NXT_VAL=$(get_secret_value \"$VAR_NEXT\")
+
+            \    local NXT_METHOD=\"PATCH\"
+
+            \    if [ \"$NXT_VAL\" == \"NOT_FOUND\" ]; then
+            NXT_VAL=\"$EMPTY_VAL\"; NXT_METHOD=\"POST\"; fi
+
+
+            \    # 3. Sanitize NEXT
+
+            \    local SANITIZED_NEXT=\"\"
+
+            \    if [ \"$NXT_VAL\" != \"$EMPTY_VAL\" ] && [ -n \"$NXT_VAL\" ];
+            then
+
+            \        IFS=',' read -ra QUEUE_ARRAY <<< \"$NXT_VAL\"
+
+            \        for BUILD_NUM in \"${QUEUE_ARRAY[@]}\"; do
+
+            \            if [ -n \"$RUNNING_IDS\" ] && echo \"$RUNNING_IDS\" |
+            grep -q \"\\b$BUILD_NUM\\b\"; then
+
+            \                if [ -z \"$SANITIZED_NEXT\" ]; then
+            SANITIZED_NEXT=\"$BUILD_NUM\"; else
+            SANITIZED_NEXT=\"$SANITIZED_NEXT,$BUILD_NUM\"; fi
+
+            \            else
+
+            \                echo \"Found dead build in queue: $BUILD_NUM.
+            Removing.\" >&2
+
+            \            fi
+
+            \        done
+
+            \    fi
+
+            \    if [ -z \"$SANITIZED_NEXT\" ]; then
+            SANITIZED_NEXT=\"$EMPTY_VAL\"; fi
+
+
+            \    # 4. Sanitize CURRENT
+
+            \    local CURRENT_IS_VALID=false
+
+            \    if [ \"$CUR_VAL\" != \"$EMPTY_VAL\" ]; then
+
+            \        if [ -n \"$RUNNING_IDS\" ] && echo \"$RUNNING_IDS\" | grep
+            -q \"\\b$CUR_VAL\\b\"; then
+
+            \            CURRENT_IS_VALID=true
+
+            \        else
+
+            \            echo \"Current lock holder $CUR_VAL is dead.
+            Invalidating lock.\" >&2
+
+            \            CURRENT_IS_VALID=false
+
+            \        fi
+
+            \    else
+
+            \        CURRENT_IS_VALID=true
+
+            \    fi
+
+
+            \    # 5. Repair Logic
+
+            \    local FINAL_CURRENT=\"$CUR_VAL\"
+
+            \    local FINAL_NEXT=\"$SANITIZED_NEXT\"
+
+
+            \    if [ \"$CURRENT_IS_VALID\" == \"false\" ]; then
+
+            \        if [ \"$SANITIZED_NEXT\" != \"$EMPTY_VAL\" ]; then
+
+            \            IFS=',' read -r FIRST_IN_QUEUE REMAINDER <<<
+            \"$SANITIZED_NEXT\"
+
+            \            FINAL_CURRENT=\"$FIRST_IN_QUEUE\"
+
+            \            echo \"Promoting $FINAL_CURRENT to replace dead lock.\"
+            >&2
+
+            \            if [ -n \"$REMAINDER\" ]; then
+            FINAL_NEXT=\"$REMAINDER\"; else FINAL_NEXT=\"$EMPTY_VAL\"; fi
+
+            \        else
+
+            \            FINAL_CURRENT=\"$EMPTY_VAL\"
+
+            \            FINAL_NEXT=\"$EMPTY_VAL\"
+
+            \        fi
+
+            \    fi
+
+
+            \    # 6. Apply Updates
+
+            \    if [ \"$FINAL_CURRENT\" != \"$CUR_VAL\" ] || [ \"$CUR_METHOD\"
+            == \"POST\" ]; then
+
+            \        set_secret_value \"$VAR_CURRENT\" \"$FINAL_CURRENT\"
+            \"$CUR_METHOD\"
+
+            \    fi
+
+            \    if [ \"$FINAL_NEXT\" != \"$NXT_VAL\" ] || [ \"$NXT_METHOD\" ==
+            \"POST\" ]; then
+
+            \        set_secret_value \"$VAR_NEXT\" \"$FINAL_NEXT\"
+            \"$NXT_METHOD\"
+
+            \    fi
+
+
+            \    echo \"$FINAL_CURRENT\"
+
+            }
+
+
+            # --- MAIN EXECUTION ---
+
+
+            # 1. Initial Check & Heal
+
+            CURRENT_VAL=$(check_and_heal_queue)
+
+
+            # Refetch NEXT val
+
+            NEXT_VAL=$(get_secret_value \"$VAR_NEXT\")
+
+            if [ \"$NEXT_VAL\" == \"NOT_FOUND\" ]; then NEXT_VAL=\"$EMPTY_VAL\";
+            fi
+
+
+            echo \"Queue Variables: $VAR_CURRENT | $VAR_NEXT\"
+
+            echo \"State -> CURRENT: $CURRENT_VAL | NEXT: $NEXT_VAL\"
+
+
+            if [ \"$CURRENT_VAL\" == \"$EMPTY_VAL\" ]; then
+
+            \    # Lock is free
+
+            \    echo \"Lock is free. Taking it.\"
+
+            \    set_secret_value \"$VAR_CURRENT\" \"$MY_BUILD\" \"PATCH\"
+
+
+            elif [ \"$CURRENT_VAL\" == \"$MY_BUILD\" ]; then
+
+            \    echo \"Self-healing promoted me already! Starting build...\"
+
+
+            else
+
+            \    # Lock is taken
+
+            \    echo \"Build $CURRENT_VAL is running.\"
+
+            \   \ 
+
+            \    if [ \"$NEXT_VAL\" == \"$EMPTY_VAL\" ]; then QUEUE=\"\"; else
+            QUEUE=\"$NEXT_VAL\"; fi
+
+            \   \ 
+
+            \    if [[ \",$QUEUE,\" == *\",$MY_BUILD,\"* ]]; then
+
+            \        echo \"I am already in the queue.\"
+
+            \    else
+
+            \        if [ -z \"$QUEUE\" ]; then NEW_QUEUE=\"$MY_BUILD\"; else
+            NEW_QUEUE=\"$QUEUE,$MY_BUILD\"; fi
+
+            \        echo \"Appending to queue: $NEW_QUEUE\"
+
+            \        set_secret_value \"$VAR_NEXT\" \"$NEW_QUEUE\" \"PATCH\"
+
+            \    fi
+
+
+            \    # --- WAIT LOOP ---
+
+            \    echo \"Entering Wait Loop...\"
+
+            \    while true; do
+
+            \        sleep 60
+
+            \        LATEST_LOCK_HOLDER=$(check_and_heal_queue)
+
+
+            \        if [ \"$LATEST_LOCK_HOLDER\" == \"$MY_BUILD\" ]; then
+
+            \            echo \"It matches my ID! Starting build...\"
+
+            \            break
+
+            \        fi
+
+            \        echo \"Still waiting. Current lock: $LATEST_LOCK_HOLDER\"
+
+            \    done
+
+            fi"
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            echo "Going to sleep!"
+            sleep 60
+            echo "Woken Up!"
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+        title: Wait to Mimic Execution
+    - script@1:
+        inputs:
+        - content: "#!/usr/bin/env bash
+
+            set -e
+
+
+            API_TOKEN=\"$BITRISE_API_TOKEN\"
+
+            APP_SLUG=\"$BITRISE_APP_SLUG\"
+
+            WORKFLOW_ID=\"$BITRISE_TRIGGERED_WORKFLOW_ID\"
+
+
+            # Dynamic Variable Names
+
+            VAR_CURRENT=\"${WORKFLOW_ID}_CURRENT_BUILD\"
+
+            VAR_NEXT=\"${WORKFLOW_ID}_NEXT_BUILD\"
+
+
+            BASE_URL=\"https://api.bitrise.io/v0.1/apps/$APP_SLUG/secrets\"
+
+            EMPTY_VAL=\"-9999\"
+
+
+            get_val() {
+
+            \    curl -s -H \"Authorization: $API_TOKEN\" \"$BASE_URL/$1\" | jq
+            -r \".value // \\\"$EMPTY_VAL\\\"\"
+
+            }
+
+
+            set_val() {
+
+            \    local KEY=$1
+
+            \    local VAL=$2
+
+            \    if [ -z \"$VAL\" ]; then VAL=\"$EMPTY_VAL\"; fi
+
+            \   \ 
+
+            \    # We use PATCH assuming step 1 created them.\ 
+
+            \    # If not, the queue logic was skipped or failed
+            catastrophically anyway.
+
+            \    curl -s -X PATCH \"$BASE_URL/$KEY\" \\
+
+            \         -H \"Authorization: $API_TOKEN\" \\
+
+            \         -H \"Content-Type: application/json\" \\
+
+            \         -d \"{\\\"value\\\": \\\"$VAL\\\", \\\"is_protected\\\":
+            false}\" > /dev/null
+
+            }
+
+
+            echo \"--- Releasing Lock ($VAR_CURRENT) ---\"
+
+
+            # 1. Get current queue
+
+            NEXT_VAL=$(get_val \"$VAR_NEXT\")
+
+
+            # 2. Logic
+
+            NEW_CURRENT=\"$EMPTY_VAL\"
+
+            NEW_NEXT=\"$EMPTY_VAL\"
+
+
+            if [ \"$NEXT_VAL\" != \"$EMPTY_VAL\" ] && [ -n \"$NEXT_VAL\" ]; then
+
+            \   \ 
+
+            \    IFS=',' read -r FIRST_IN_QUEUE REMAINDER <<< \"$NEXT_VAL\"
+
+            \   \ 
+
+            \    NEW_CURRENT=\"$FIRST_IN_QUEUE\"
+
+            \   \ 
+
+            \    if [ -n \"$REMAINDER\" ]; then
+
+            \        NEW_NEXT=\"$REMAINDER\"
+
+            \    else
+
+            \        NEW_NEXT=\"$EMPTY_VAL\"
+
+            \    fi
+
+            \   \ 
+
+            \    echo \"Promoting build $NEW_CURRENT from queue.\"
+
+            else
+
+            \    echo \"Queue is empty. Resetting lock to $EMPTY_VAL.\"
+
+            fi
+
+
+            # 3. Apply Update
+
+            echo \"Updating $VAR_CURRENT to: $NEW_CURRENT\"
+
+            set_val \"$VAR_CURRENT\" \"$NEW_CURRENT\"
+
+
+            echo \"Updating $VAR_NEXT to: $NEW_NEXT\"
+
+            set_val \"$VAR_NEXT\" \"$NEW_NEXT\""
+        title: Release Queue Remove
+        is_always_run: true
+  timezone:
+    steps:
+    - script@1:
+        title: Change timezone
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -ex
+
+            echo $BITRISE_TRIGGERED_WORKFLOW_ID
+            echo $BITRISE_TRIGGERED_WORKFLOW_TITLE
+
+            echo "Timezone before:"
+            date
+
+            # Define the Timezone
+            export TARGET_TZ="America/Sao_Paulo"
+
+            # 1. Make the variable available to all future steps (Gradle, etc.)
+            envman add --key TZ --value "$TARGET_TZ"
+
+            # 2. Change the System Time (Linux Only)
+            # Link the timezone file
+            sudo ln -fs /usr/share/zoneinfo/$TARGET_TZ /etc/localtime
+            # Update the system configuration
+            sudo dpkg-reconfigure -f noninteractive tzdata
+
+            echo "Timezone changed to:"
+            date
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            date
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    meta:
+      bitrise.io:
+        machine_type_id: g2.linux.large
+  timezone-mac:
+    steps:
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            sudo systemsetup -gettimezone
+            echo "Local: $(date '+%Y-%m-%d %H:%M:%S %Z (%z)') | UTC: $(TZ=UTC date '+%Y-%m-%d %H:%M:%S UTC (%z)')"
+
+            sudo systemsetup -settimezone "America/Sao_Paulo"
+
+            sudo systemsetup -gettimezone
+            echo "Local: $(date '+%Y-%m-%d %H:%M:%S %Z (%z)') | UTC: $(TZ=UTC date '+%Y-%m-%d %H:%M:%S UTC (%z)')"
+    meta:
+      bitrise.io:
+        stack: osx-xcode-26.2.x
+        machine_type_id: g2.mac.4large
 pipelines:
   flutter_test_pipeline:
     workflows:
-      # Step 1: Analyze packages and distribute across fixed shards
       shard_coordinator:
         depends_on: []
-
-      # Step 2: Run tests in parallel across fixed number of shards
-      # SHARD_COUNT is fixed (e.g., 5), packages are distributed evenly
-      # Empty shards will run but complete quickly with no tests
       test_shard:
         depends_on:
         - shard_coordinator
-        parallel: $SHARD_COUNT  # Fixed parallelism (e.g., 5 shards)
-
-
-# Default meta configuration
+        parallel: "$SHARD_COUNT"
 meta:
   bitrise.io:
     stack: linux-docker-android-22.04
